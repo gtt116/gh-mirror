@@ -7,6 +7,7 @@ This can be useful when maintaining a local mirror.
 """
 
 from __future__ import print_function
+import time
 import itertools
 import json
 import os
@@ -20,6 +21,19 @@ except ImportError:  # Python 2 fallback
     from urllib import urlopen
 
 
+def ensure_subprocess_call(arguments, timeout=30):
+    while True:
+        try:
+            real_arguments = ['timeout', '%ss' % timeout]
+            real_arguments.extend(arguments)
+            subprocess.check_call(real_arguments)
+        except Exception as ex:
+            print(ex)
+            time.sleep(1)
+        else:
+            break
+
+
 def repos(user):
     """
     Get all of the repositories for a user.
@@ -29,9 +43,16 @@ def repos(user):
     """
 
     for page in itertools.count(start=1):
-        res_handle = urlopen(
-            "https://api.github.com/users/%s/repos?page=%d" % (user, page)
-        )
+        print("Loading page: %s" % page)
+        while True:
+            try:
+                res_handle = urlopen(
+                    "https://api.github.com/users/%s/repos?page=%d" % (user, page)
+                )
+            except Exception as ex:
+                print(ex)
+            else:
+                break
         res_encoding = "utf8"
         res_json = json.loads(res_handle.read().decode(res_encoding))
 
@@ -64,8 +85,9 @@ def update(repo):
     :param repo: information about this repo
     """
 
+    print("Updating %s" % repo)
     repo_dir = os.path.basename(repo["url"])
-    subprocess.check_call(["git", "--git-dir", repo_dir, "remote", "update"])
+    ensure_subprocess_call(['git', '--git-dir', repo_dir, 'remote', 'update'])
     description(os.path.join(repo_dir, "description"), repo["description"])
     export(os.path.join(repo_dir, "git-daemon-export-ok"))
 
@@ -77,8 +99,9 @@ def mirror(repo):
     :param repo: information about the repo to mirror
     """
 
-    subprocess.check_call(["git", "clone", "--mirror", repo["url"]])
+    print("Mirror %s" % repo)
 
+    ensure_subprocess_call(["git", "clone", "--mirror", repo["url"]], 120)
     repo_dir = os.path.basename(repo["url"])
     description_file = os.path.join(repo_dir, "description")
     export_file = os.path.join(repo_dir, "git-daemon-export-ok")
@@ -104,9 +127,10 @@ def description(description_file, description):
     :param description_file: the path to the description file
     :param description: the description for this repo
     """
+    if description:
+        with open(description_file, "wb") as f:
+            f.write(description.encode("utf8") + b"\n")
 
-    with open(description_file, "wb") as f:
-        f.write(description.encode("utf8") + b"\n")
 
 def remotely_deleted_repos(remote_repos):
     """
@@ -122,6 +146,7 @@ def remotely_deleted_repos(remote_repos):
     remote_repos = [url.split("/")[-1] for url in remote_repo_urls]
     return [repo for repo in local_repos if repo not in remote_repos]
 
+
 def update_or_mirror_repos(user, delete=False):
     """
     For each repo by a user, either update it if it is already mirrored, or
@@ -131,9 +156,7 @@ def update_or_mirror_repos(user, delete=False):
     :param delete: delete remotely deleted repositories from our local mirror
     """
 
-    user_repos = list(repos(user))
-
-    for repo in user_repos:
+    for repo in repos(user):
         if repo_already_mirrored(repo["url"]):
             update(repo)
         else:
