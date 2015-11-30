@@ -21,7 +21,8 @@ except ImportError:  # Python 2 fallback
     from urllib import urlopen
 
 
-def ensure_subprocess_call(arguments, timeout=30):
+def ensure_subprocess_call(arguments, timeout=30, wait_step=0):
+    wait = 1
     while True:
         try:
             real_arguments = ['timeout', '%ss' % timeout]
@@ -29,7 +30,8 @@ def ensure_subprocess_call(arguments, timeout=30):
             subprocess.check_call(real_arguments)
         except Exception as ex:
             print(ex)
-            time.sleep(1)
+            time.sleep(wait)
+            wait += wait_step
         else:
             break
 
@@ -87,7 +89,8 @@ def update(repo):
 
     print("Updating %s" % repo)
     repo_dir = os.path.basename(repo["url"])
-    ensure_subprocess_call(['git', '--git-dir', repo_dir, 'remote', 'update'])
+    ensure_subprocess_call(['git', '--git-dir', repo_dir, 'remote', 'update'],
+                           wait_step=10)
     description(os.path.join(repo_dir, "description"), repo["description"])
     export(os.path.join(repo_dir, "git-daemon-export-ok"))
 
@@ -101,7 +104,8 @@ def mirror(repo):
 
     print("Mirror %s" % repo)
 
-    ensure_subprocess_call(["git", "clone", "--mirror", repo["url"]], 120)
+    ensure_subprocess_call(["git", "clone", "--mirror", repo["url"]], 120,
+                           wait_step=30)
     repo_dir = os.path.basename(repo["url"])
     description_file = os.path.join(repo_dir, "description")
     export_file = os.path.join(repo_dir, "git-daemon-export-ok")
